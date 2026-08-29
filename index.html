@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>证件照生成器 · 本地 AI 抠图</title>
+<style>
+:root{
+  --ink:#3B362F;
+  --muted:#8F877A;
+  --coral:#E8735A;
+  --apricot:#F0A868;
+  --sage:#8FB59B;
+  --line:rgba(59,54,47,.12);
+  --serif:Georgia,"Times New Roman","Songti SC","STSong","Noto Serif CJK SC",serif;
+  --sans:"Avenir Next","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --pop:cubic-bezier(.34,1.56,.64,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--sans);color:var(--ink);
+  background:
+    radial-gradient(900px 620px at 6% -12%,rgba(240,168,104,.20),transparent 62%),
+    radial-gradient(820px 540px at 102% -4%,rgba(157,187,212,.24),transparent 62%),
+    radial-gradient(760px 520px at 50% 112%,rgba(143,181,155,.18),transparent 62%),
+    linear-gradient(180deg,#FBF8F3,#F6F3EC);
+  min-height:100vh;line-height:1.7;font-size:15px;
+}
+body::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:99;opacity:.045;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.7'/></svg>");
+}
+.wrap{max-width:980px;margin:0 auto;padding:56px 24px 72px;position:relative}
+
+/* ---------- 漂浮光斑 ---------- */
+.blob{position:absolute;filter:blur(70px);opacity:.5;pointer-events:none;z-index:0;animation:drift 26s ease-in-out infinite alternate}
+.b1{width:360px;height:360px;top:-70px;left:-100px;border-radius:47% 53% 58% 42%/45% 42% 58% 55%;
+    background:radial-gradient(circle at 32% 32%,#F8CD9C,#F0A868 58%,transparent 72%)}
+.b2{width:300px;height:300px;top:-40px;right:-70px;border-radius:55% 45% 42% 58%/52% 56% 44% 48%;
+    background:radial-gradient(circle at 40% 40%,#C5D8EA,#9DBBD4 60%,transparent 74%);animation-duration:32s;animation-delay:-9s}
+.b3{width:280px;height:280px;bottom:-60px;left:34%;border-radius:44% 56% 52% 48%/58% 44% 56% 42%;
+    background:radial-gradient(circle at 40% 40%,#C9DECF,#8FB59B 58%,transparent 72%);animation-duration:38s;animation-delay:-17s}
+@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(44px,28px) scale(1.09)}}
+
+/* ---------- 竖排小签 ---------- */
+.side-tag{
+  position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:5;pointer-events:none;
+  writing-mode:vertical-rl;font-size:11px;letter-spacing:.55em;color:rgba(59,54,47,.32);
+}
+
+/* ---------- 头部 ---------- */
+.masthead{text-align:center;margin-bottom:42px;position:relative;z-index:1}
+.eyebrow{
+  display:flex;align-items:center;justify-content:center;gap:14px;
+  font-size:11.5px;letter-spacing:.32em;color:var(--coral);font-weight:600;text-transform:uppercase;
+}
+.eyebrow::before,.eyebrow::after{content:"";width:38px;height:1px;background:linear-gradient(90deg,transparent,rgba(232,115,90,.65))}
+.eyebrow::after{transform:scaleX(-1)}
+h1{
+  font-family:var(--serif);font-size:clamp(36px,5.4vw,50px);letter-spacing:.1em;
+  margin:14px 0 8px;font-weight:600;
+}
+h1 .u{
+  background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='44' height='7' viewBox='0 0 44 7'><path d='M2 4.5 Q6.5 1 11 4.5 T20 4.5 T29 4.5 T38 4.5 T47 4.5' fill='none' stroke='%23E8735A' stroke-width='2' stroke-linecap='round' opacity='.85'/></svg>") repeat-x left bottom;
+  background-size:44px 7px;padding-bottom:12px;
+}
+.poem{font-family:var(--serif);font-style:italic;color:rgba(232,115,90,.85);font-size:15px;letter-spacing:.22em;margin-bottom:12px}
+.sub{color:var(--muted);font-size:14px;max-width:560px;margin:0 auto}
+.sub b{color:var(--ink);font-weight:600}
+
+/* ---------- 卡片 ---------- */
+.card{
+  background:rgba(255,255,255,.62);
+  backdrop-filter:blur(18px) saturate(1.15);-webkit-backdrop-filter:blur(18px) saturate(1.15);
+  border:1px solid rgba(255,255,255,.8);border-radius:26px;
+  box-shadow:0 32px 64px -36px rgba(96,74,52,.4),0 2px 8px rgba(96,74,52,.04);
+  position:relative;z-index:1;
+}
+.rise{animation:rise .7s cubic-bezier(.22,.9,.3,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(18px);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+.d1{animation-delay:.08s}.d2{animation-delay:.18s}
+
+/* ---------- 上传 ---------- */
+#step1{padding:28px}
+.drop{
+  border:1.5px dashed rgba(59,54,47,.26);border-radius:20px;padding:56px 24px;text-align:center;
+  cursor:pointer;outline:none;transition:.25s var(--pop);
+  background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,.12));
+}
+.drop:hover,.drop:focus-visible,.drop.over{
+  border-color:var(--coral);transform:translateY(-3px);
+  background:linear-gradient(180deg,rgba(255,255,255,.9),rgba(255,238,229,.55));
+  box-shadow:0 22px 44px -26px rgba(232,115,90,.5);
+}
+.drop svg{width:48px;height:48px;stroke:var(--muted);margin-bottom:14px;transition:.3s var(--pop)}
+.drop:hover svg,.drop.over svg{stroke:var(--coral);transform:translateY(-5px) rotate(-5deg)}
+.drop-main{font-family:var(--serif);font-size:19px;letter-spacing:.08em;font-weight:600}
+.drop-main em{font-style:normal;color:var(--coral)}
+.drop-sub{font-size:12.5px;color:var(--muted);margin-top:8px;letter-spacing:.06em}
+.tips{margin-top:20px;font-size:13.5px}
+.tips summary{cursor:pointer;letter-spacing:.04em;color:var(--muted);transition:.2s}
+.tips summary:hover{color:var(--coral)}
+.tips summary::marker{color:var(--coral)}
+.tips ol{margin:10px 0 2px 22px;color:var(--muted)}
+.tips li{margin:4px 0}
+.tips li::marker{color:var(--coral);font-weight:700}
+
+/* ---------- 编辑区 ---------- */
+.editor-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:28px;align-items:start}
+.stage{padding:26px}
+.photo-frame{
+  position:relative;max-width:380px;margin:0 auto;padding:12px;
+  background:linear-gradient(180deg,#FFFFFF,#FDFBF7);
+  border:1px solid var(--line);border-radius:18px;
+  box-shadow:0 24px 48px -26px rgba(96,74,52,.45);
+}
+.photo-frame canvas{display:block;width:100%;height:auto;border-radius:10px}
+.cutline{position:absolute;inset:5px;border:1px dashed rgba(59,54,47,.16);border-radius:14px;pointer-events:none}
+.seal{
+  position:absolute;right:-16px;bottom:-16px;width:98px;height:98px;border-radius:50%;
+  border:1.5px solid rgba(232,115,90,.7);color:var(--coral);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.42);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);
+  transform:rotate(-12deg);pointer-events:none;
+  animation:sealfloat 5s ease-in-out infinite;
+}
+.seal::after{content:"";position:absolute;inset:6px;border:1px dashed rgba(232,115,90,.45);border-radius:50%}
+.seal b{font-family:var(--serif);font-size:18px;letter-spacing:3px}
+.seal span{font-size:10px;letter-spacing:2px;margin-top:2px}
+@keyframes sealfloat{0%,100%{transform:rotate(-12deg) translateY(0)}50%{transform:rotate(-9deg) translateY(-7px)}}
+.size-note{
+  text-align:center;font-size:12px;color:var(--muted);margin-top:22px;
+  letter-spacing:.1em;font-variant-numeric:tabular-nums;
+}
+.tipbox{
+  margin-top:14px;border-radius:14px;padding:12px 16px;font-size:13.5px;color:#6B6152;
+  background:rgba(59,54,47,.045);border:1px solid var(--line);
+}
+.tipbox ul{list-style:none}
+.tipbox li{margin:2px 0}
+.tipbox li::before{content:"✦ ";color:var(--coral)}
+.tipbox .ok{color:#5E8A6B;font-weight:600}
+.tipbox .ok::before{content:"✿ ";color:#8FB59B}
+
+/* ---------- 控制面板 ---------- */
+.controls{padding:24px}
+.ctl-h{
+  font-family:var(--serif);font-size:14px;letter-spacing:.5em;color:var(--muted);
+  margin:24px 0 12px;display:flex;align-items:center;gap:10px;font-weight:600;
+}
+.ctl-h:first-child{margin-top:0}
+.ctl-h::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{
+  font:inherit;border:1px solid var(--line);border-radius:999px;padding:7px 14px;
+  font-size:13px;cursor:pointer;letter-spacing:.03em;line-height:1.35;color:var(--ink);
+  background:rgba(255,255,255,.7);transition:.22s var(--pop);
+}
+.chip small{display:block;font-size:10px;color:var(--muted);letter-spacing:.05em}
+.chip:hover{transform:translateY(-2px);border-color:rgba(232,115,90,.55)}
+.chip.on{
+  background:linear-gradient(135deg,#E8735A,#F0A868);border-color:transparent;color:#fff;
+  box-shadow:0 10px 22px -10px rgba(232,115,90,.65);animation:pop .3s var(--pop);
+}
+.chip.on small{color:rgba(255,255,255,.85)}
+@keyframes pop{0%{transform:scale(.92)}60%{transform:scale(1.05)}100%{transform:scale(1)}}
+.swatches{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.sw{
+  width:32px;height:32px;border-radius:50%;border:2px solid #fff;cursor:pointer;padding:0;
+  box-shadow:0 0 0 1px var(--line),0 6px 12px -6px rgba(59,54,47,.35);transition:.22s var(--pop);
+}
+.sw:hover{transform:translateY(-3px) scale(1.05)}
+.sw.on{box-shadow:0 0 0 2px var(--coral),0 8px 16px -6px rgba(232,115,90,.5);transform:scale(1.12)}
+.sw-custom{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);cursor:pointer}
+.sw-custom input[type=color]{
+  width:32px;height:32px;border:1.5px dashed rgba(59,54,47,.35);border-radius:50%;
+  padding:0;background:none;cursor:pointer;transition:.2s;
+}
+.sw-custom:hover input[type=color]{border-color:var(--coral)}
+.sw-custom input[type=color]::-webkit-color-swatch-wrapper{padding:2px}
+.sw-custom input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
+.mini-note{font-size:11.5px;color:var(--muted);margin-top:10px;letter-spacing:.03em;line-height:1.7}
+.btns{margin-top:26px;display:grid;gap:10px}
+.btn{
+  font:inherit;padding:13px 14px;border:1px solid var(--line);border-radius:14px;
+  background:rgba(255,255,255,.78);cursor:pointer;font-size:14.5px;letter-spacing:.08em;
+  color:var(--ink);font-weight:600;transition:.22s var(--pop);
+}
+.btn:hover{transform:translateY(-2px);box-shadow:0 14px 26px -14px rgba(96,74,52,.45)}
+.btn:active{transform:translateY(0) scale(.97);box-shadow:none}
+.btn.primary{
+  background:linear-gradient(135deg,#E8735A,#F0A868);border:none;color:#fff;
+  box-shadow:0 16px 30px -14px rgba(232,115,90,.6);
+}
+.btn.primary:hover{box-shadow:0 20px 36px -14px rgba(232,115,90,.7)}
+.btn.link{border:none;background:none;color:var(--muted);font-weight:400;font-size:13px;text-decoration:underline;text-underline-offset:4px}
+.btn.link:hover{color:var(--coral);transform:none;box-shadow:none}
+
+/* ---------- 忙碌遮罩 ---------- */
+#busy{
+  position:fixed;inset:0;background:rgba(59,54,47,.28);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  display:none;align-items:center;justify-content:center;z-index:100;
+}
+#busy.show{display:flex}
+.busy-card{
+  background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.9);border-radius:22px;
+  box-shadow:0 32px 64px -30px rgba(59,54,47,.5);padding:30px 44px;text-align:center;
+}
+.spin{
+  width:34px;height:34px;border-radius:50%;margin:0 auto 14px;
+  background:conic-gradient(from 0deg,var(--coral),var(--apricot),transparent 72%);
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 4px),#000 0);
+  mask:radial-gradient(farthest-side,transparent calc(100% - 4px),#000 0);
+  animation:spin .9s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+#busyText{font-size:14px;letter-spacing:.08em;color:var(--ink)}
+
+/* ---------- 页脚 ---------- */
+footer{
+  margin-top:56px;padding-top:22px;text-align:center;position:relative;z-index:1;
+  font-size:12.5px;color:var(--muted);line-height:2;
+}
+footer b{color:var(--ink)}
+footer p:first-child{font-family:var(--serif);letter-spacing:.14em;color:rgba(232,115,90,.8)}
+
+@media (max-width:760px){
+  .editor-grid{grid-template-columns:1fr}
+  .seal{right:-6px;bottom:-14px;width:84px;height:84px}
+  .seal b{font-size:15px}
+  .side-tag{display:none}
+  .blob{opacity:.35}
+}
+@media (prefers-reduced-motion:reduce){
+  .blob,.seal,.chip.on,.rise{animation:none}
+  .rise{opacity:1;filter:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="side-tag">光影小馆 · 纯本地处理 · 照片不上传</div>
+
+  <header class="masthead rise">
+    <div class="eyebrow">Portrait Studio · 光影小馆</div>
+    <h1><span class="u">证件照</span>生成器</h1>
+    <p class="poem">把此刻，装进标准尺寸里。</p>
+    <p class="sub">上传一张自拍，AI 自动完成<b>抠图换底、人脸对齐、标准裁剪</b>，还可轻度美颜——照片全程留在你的设备里，哪儿也不去。</p>
+  </header>
+
+  <main>
+    <!-- 第一步：上传 -->
+    <section id="step1" class="card rise d1">
+      <div id="drop" class="drop" tabindex="0" role="button" aria-label="上传照片">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/>
+          <circle cx="12" cy="13.5" r="3.6"/>
+          <circle cx="17.8" cy="10.2" r=".6" fill="currentColor" stroke="none"/>
+        </svg>
+        <p class="drop-main">把自拍<em>轻轻放进来</em></p>
+        <p class="drop-sub">点击选择 · 拖拽 · Ctrl+V 粘贴 —— 正脸、光线均匀、胸部以上效果最佳</p>
+      </div>
+      <input id="file" type="file" accept="image/*" hidden>
+      <details class="tips">
+        <summary>想更上镜？几个拍证件照的小心机</summary>
+        <ol>
+          <li>正对镜头、平视前方，双肩放平，露出耳朵和眉毛，不戴帽子。</li>
+          <li>光线均匀不逆光，脸上不要有明显的阴影或反光。</li>
+          <li>站在纯色墙前拍摄，AI 抠图的发丝边缘会更干净。</li>
+          <li>手机竖拍、胸部以上入镜，不开美颜瘦脸（部分证件审核会不通过）。</li>
+        </ol>
+      </details>
+    </section>
+
+    <!-- 第二步：编辑 -->
+    <section id="editor" hidden>
+      <div class="editor-grid">
+        <div class="stage card rise d1">
+          <div class="photo-frame">
+            <canvas id="preview" width="295" height="413"></canvas>
+            <div class="cutline"></div>
+            <div class="seal" aria-hidden="true"><b>本地AI</b><span>照片不上传</span></div>
+          </div>
+          <p id="sizeNote" class="size-note"></p>
+          <div id="tipBox" class="tipbox" hidden></div>
+        </div>
+
+        <aside class="controls card rise d2">
+          <h2 class="ctl-h">规 格</h2>
+          <div id="specRow" class="chips"></div>
+          <h2 class="ctl-h">底 色</h2>
+          <div id="bgRow" class="swatches"></div>
+          <h2 class="ctl-h">美 颜</h2>
+          <div id="beautyRow" class="chips"></div>
+          <p class="mini-note">磨皮 + 提亮，仅作用于人物区域；正式证件建议「关闭」或「轻度」。</p>
+          <div class="btns">
+            <button id="dlJpg" class="btn primary">下载 JPG</button>
+            <button id="dlPng" class="btn">下载 PNG</button>
+            <button id="dlSheet" class="btn">六寸冲印排版</button>
+            <button id="retry" class="btn" hidden>↻ 重试 AI 抠图</button>
+            <button id="reup" class="btn link">↺ 换一张照片</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="rise d2">
+    <p>✦ 一张自拍，一键入档 ✦</p>
+    <p>换底、裁剪与美颜全部在你的浏览器里完成，<b>照片从未离开你的设备</b>。<br>
+    AI 模型随页面本地携带（mediapipe 文件夹，断网可用），单文件分发时自动回退 CDN；导出均为 300 DPI 标准尺寸，「六寸排版」可直接送冲印。</p>
+  </footer>
+</div>
+
+<div id="busy"><div class="busy-card"><div class="spin"></div><p id="busyText">AI 处理中…</p></div></div>
+
+<script>
+(function(){
+'use strict';
+
+/* ================= 基础数据 ================= */
+const SPECS=[
+  {name:'一寸',   mm:'25×35', px:[295,413], head:.66, gap:.10},
+  {name:'二寸',   mm:'35×49', px:[413,579], head:.64, gap:.10},
+  {name:'小二寸', mm:'33×48', px:[390,567], head:.64, gap:.10},
+  {name:'身份证', mm:'26×32', px:[307,378], head:.68, gap:.08},
+  {name:'签证',   mm:'51×51', px:[602,602], head:.58, gap:.12},
+];
+const BGS=[
+  {name:'白',c:'#FFFFFF'},{name:'蓝',c:'#438EDB'},{name:'红',c:'#E60012'},
+  {name:'深蓝',c:'#1D4E89'},{name:'浅灰',c:'#E6E9EC'}
+];
+const BEAUTY=[
+  {name:'关闭',S:0, b:0},
+  {name:'轻度',S:0.55,b:0.05},
+  {name:'中度',S:0.85,b:0.09}
+];
+const state={spec:SPECS[0],bg:BGS[0].c,bgName:BGS[0].name,beauty:BEAUTY[1]};
+
+let srcCanvas=null,personCanvas=null,mattingOK=false,aiFailMsg='',faceBox=null,geometry=null;
+
+/* ================= DOM ================= */
+const $=s=>document.querySelector(s);
+const step1=$('#step1'),editor=$('#editor'),preview=$('#preview'),
+      drop=$('#drop'),fileInput=$('#file'),busy=$('#busy'),busyText=$('#busyText'),
+      tipBox=$('#tipBox'),sizeNote=$('#sizeNote'),specRow=$('#specRow'),bgRow=$('#bgRow'),beautyRow=$('#beautyRow');
+
+/* ================= CDN 加载（多源回退） ================= */
+const CDNS=[
+  'https://cdn.jsdelivr.net/npm/',
+  'https://fastly.jsdelivr.net/npm/',
+  'https://unpkg.com/'
+];
+const VER={'selfie_segmentation':'0.1.1675465747','face_detection':'0.4.1646425229'};
+
+function loadScript(url){
+  return new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src=url;s.onload=res;s.onerror=()=>{s.remove();rej(new Error('load fail: '+url));};
+    document.head.appendChild(s);
+  });
+}
+/* 优先加载随站点分发的本地模型（mediapipe/ 目录），不可用再逐个回退 CDN */
+async function loadLib(pkg,file){
+  const local='mediapipe/'+pkg+'/';
+  try{
+    const r=await fetch(local+file,{method:'HEAD'});
+    if(r.ok){await loadScript(local+file);return local;}
+  }catch(e){}
+  for(const base of CDNS){
+    const b=base+pkg+'@'+VER[pkg]+'/';
+    try{await loadScript(b+file);return b;}catch(e){}
+  }
+  throw new Error('本地模型缺失且 CDN 均不可达');
+}
+
+let segBase=null,fdBase=null,segmenter=null,detector=null;
+
+async function ensureSeg(){
+  if(!window.SelfieSegmentation) segBase=await loadLib('selfie_segmentation','selfie_segmentation.js');
+  if(!segmenter){
+    segmenter=new SelfieSegmentation({locateFile:f=>segBase+f});
+    segmenter.setOptions({modelSelection:1});
+    if(segmenter.initialize) await segmenter.initialize();
+  }
+}
+async function ensureFace(){
+  if(!window.FaceDetection) fdBase=await loadLib('face_detection','face_detection.js');
+  if(!detector){
+    detector=new FaceDetection({locateFile:f=>fdBase+f});
+    detector.setOptions({model:'short'});
+    if(detector.initialize) await detector.initialize();
+  }
+}
+
+function withTimeout(p,ms,msg){
+  return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error(msg)),ms))]);
+}
+function runFace(canvas){
+  const p=new Promise((res,rej)=>{
+    detector.onResults(r=>res(r.detections||[]));
+    detector.send({image:canvas}).catch(rej);
+  });
+  return withTimeout(p,20000,'人脸检测超时');
+}
+function runSegmentation(canvas){
+  const p=new Promise((res,rej)=>{
+    segmenter.onResults(r=>res(r.segmentationMask));
+    segmenter.send({image:canvas}).catch(rej);
+  });
+  return withTimeout(p,25000,'抠图超时');
+}
+function pickLargest(dets){
+  let best=null,area=0;
+  for(const d of dets||[]){
+    const b=d.boundingBox;if(!b)continue;
+    let xMin,yMin,w,h;
+    if(isFinite(b.xMin)&&isFinite(b.yMin)){        /* 左上角格式（旧版本） */
+      xMin=b.xMin;yMin=b.yMin;
+      w=isFinite(b.width)?b.width:(b.xMax-b.xMin);
+      h=isFinite(b.height)?b.height:(b.yMax-b.yMin);
+    }else if(isFinite(b.xCenter)&&isFinite(b.yCenter)){ /* 中心点格式（0.4+） */
+      w=b.width;h=b.height;
+      xMin=b.xCenter-w/2;yMin=b.yCenter-h/2;
+    }else continue;
+    if(!(w>0&&h>0))continue;
+    if(w*h>area){area=w*h;best={xMin,yMin,width:w,height:h};}
+  }
+  return best;
+}
+
+/* ================= 图像工具 ================= */
+function mkCanvas(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c;}
+
+async function loadBitmap(file){
+  try{return await createImageBitmap(file,{imageOrientation:'from-image'});}
+  catch(e){
+    return new Promise((res,rej)=>{
+      const url=URL.createObjectURL(file),img=new Image();
+      img.onload=()=>{URL.revokeObjectURL(url);res(img);};
+      img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('图片无法解码，请使用 JPG / PNG 格式'));};
+      img.src=url;
+    });
+  }
+}
+function downscale(src,max){
+  const k=Math.min(1,max/Math.max(src.width,src.height));
+  const c=mkCanvas(Math.round(src.width*k),Math.round(src.height*k));
+  c.getContext('2d').drawImage(src,0,0,c.width,c.height);
+  return c;
+}
+/* 人像层：mask 挖出人物 */
+function buildPerson(src,mask){
+  const c=mkCanvas(src.width,src.height),x=c.getContext('2d');
+  x.drawImage(mask,0,0,c.width,c.height);
+  x.globalCompositeOperation='source-in';
+  x.drawImage(src,0,0);
+  return refineEdges(c);
+}
+
+/* 边缘精修：模糊 → 阈值内收（切掉原背景色镶边）→ 收窄过渡带 → 轻羽化 */
+function refineEdges(canvas){
+  const w=canvas.width,h=canvas.height;
+  const ctx=canvas.getContext('2d');
+  const img=ctx.getImageData(0,0,w,h),d=img.data;
+  const n=w*h,a=new Float32Array(n);
+  for(let i=0;i<n;i++)a[i]=d[i*4+3];
+
+  const r=Math.max(1,Math.round(Math.min(w,h)/500));  /* 模糊半径随分辨率缩放 */
+  boxBlur(a,w,h,r);
+
+  const GAIN=2.2,CUT=104;                             /* 弱置信杂边直接切除，实边快速饱和 */
+  for(let i=0;i<n;i++){
+    let v=(a[i]-CUT)*GAIN;
+    d[i*4+3]=v<0?0:(v>255?255:v);
+  }
+  for(let i=0;i<n;i++)a[i]=d[i*4+3];
+  boxBlur(a,w,h,1);                                   /* 最后轻羽化一次 */
+  for(let i=0;i<n;i++)d[i*4+3]=a[i];
+  ctx.putImageData(img,0,0);
+  return canvas;
+}
+
+/* 可分离 box blur（仅作用于传入数组） */
+function boxBlur(arr,w,h,r){
+  const tmp=new Float32Array(w*h),win=2*r+1;
+  for(let y=0;y<h;y++){
+    const row=y*w;let acc=0;
+    for(let x=-r;x<=r;x++)acc+=arr[row+Math.min(w-1,Math.max(0,x))];
+    for(let x=0;x<w;x++){
+      tmp[row+x]=acc/win;
+      acc+=arr[row+Math.min(w-1,x+r+1)]-arr[row+Math.max(0,x-r)];
+    }
+  }
+  for(let x=0;x<w;x++){
+    let acc=0;
+    for(let y=-r;y<=r;y++)acc+=tmp[Math.min(h-1,Math.max(0,y))*w+x];
+    for(let y=0;y<h;y++){
+      arr[y*w+x]=acc/win;
+      acc+=tmp[Math.min(h-1,y+r+1)*w+x]-tmp[Math.max(0,y-r)*w+x];
+    }
+  }
+}
+function alphaBBox(canvas){
+  const w=canvas.width,h=canvas.height;
+  const d=canvas.getContext('2d').getImageData(0,0,w,h).data;
+  let x0=w,y0=h,x1=0,y1=0,found=false;
+  for(let y=0;y<h;y+=2)for(let x=0;x<w;x+=2){
+    if(d[(y*w+x)*4+3]>40){
+      found=true;
+      if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;
+    }
+  }
+  if(!found)return null;
+  return {x0,y0,x1,y1,cx:(x0+x1)/2,w:x1-x0,h:y1-y0};
+}
+
+/* ================= 美颜（保细节磨皮 + 提亮，仅人物区域） ================= */
+let beautyCache={key:'',canvas:null};
+function beautyLayer(){
+  const key=(personCanvas?personCanvas.width+'x'+personCanvas.height:'')+'#'+state.beauty.S;
+  if(beautyCache.key===key)return beautyCache.canvas;
+  const out=beautify(personCanvas,state.beauty);
+  beautyCache={key,canvas:out};
+  return out;
+}
+function beautify(src,lv){
+  if(!src||!lv.S)return src;
+  const w=src.width,h=src.height;
+  /* 在副本上处理，保留原始人像层便于切换档位 */
+  const c=mkCanvas(w,h);c.getContext('2d').drawImage(src,0,0);
+  /* GPU 高斯模糊版本作为"皮肤底色" */
+  const b=mkCanvas(w,h),bx=b.getContext('2d');
+  bx.filter='blur('+Math.max(2,Math.round(Math.min(w,h)/300))+'px)';
+  bx.drawImage(src,0,0);
+  const B=bx.getImageData(0,0,w,h).data;
+  const ctx=c.getContext('2d'),O=ctx.getImageData(0,0,w,h),d=O.data;
+  const S=lv.S,WB=lv.b,T0=8,T1=48;
+  for(let i=0,n=w*h;i<n;i++){
+    const p=i*4;
+    if(!d[p+3])continue;                      /* 透明区域跳过，alpha 不动 */
+    const m=Math.abs(d[p]-B[p])+Math.abs(d[p+1]-B[p+1])+Math.abs(d[p+2]-B[p+2]);
+    let f=(m-T0)/(T1-T0);f=f<0?0:(f>1?1:f);   /* 1=强细节(五官/发丝,保留) 0=平坦皮肤(磨皮) */
+    const k=(1-f)*S;
+    for(let cc=0;cc<3;cc++){
+      const o=d[p+cc],bl=p+cc;
+      let v=o+(B[bl]-o)*k;                    /* 磨皮 */
+      v=v+(255-v)*WB*S;                       /* 轻微提亮 */
+      d[p+cc]=v<0?0:(v>255?255:v);
+    }
+  }
+  ctx.putImageData(O,0,0);
+  return c;
+}
+
+/* ================= 构图几何 =================
+   以人脸框为锚：头顶=脸框上移0.32×脸高(发量余量)，
+   输出时让头部占标准比例、位于顶部留白处、水平居中 */
+function computeGeometry(){
+  const W=srcCanvas.width,H=srcCanvas.height;
+  if(faceBox){
+    const fh=faceBox.height*H;
+    return {
+      top:(faceBox.yMin*H)-0.32*fh,
+      bottom:(faceBox.yMin+faceBox.height)*H+0.06*fh,
+      cx:(faceBox.xMin+faceBox.width/2)*W,
+      ok:true
+    };
+  }
+  const bbox=personCanvas?alphaBBox(personCanvas):null;
+  if(bbox&&bbox.w>W*0.15){
+    const headH=Math.min(bbox.w*0.60,bbox.h*0.55);
+    return {top:bbox.y0,bottom:bbox.y0+headH,cx:bbox.cx,ok:false};
+  }
+  /* 毫无参照时退化为普通居中裁剪（略偏上），绝不凭空放大 */
+  return {cover:true};
+}
+
+/* ================= 渲染输出 ================= */
+function renderOutput(){
+  const [W,H]=state.spec.px;
+  preview.width=W;preview.height=H;
+  const g=preview.getContext('2d');
+  g.fillStyle=state.bg;g.fillRect(0,0,W,H);
+  g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
+
+  const layer=personCanvas?beautyLayer():srcCanvas;
+
+  if(geometry.cover){ /* 无任何参照：按输出比例居中裁剪，略偏上 */
+    const ar=W/H;let cw=layer.width,ch=cw/ar;
+    if(ch>layer.height){ch=layer.height;cw=ch*ar;}
+    g.drawImage(layer,(layer.width-cw)/2,(layer.height-ch)*0.42,cw,ch,0,0,W,H);
+    return;
+  }
+
+  const headH=geometry.bottom-geometry.top;
+  let scale=((state.spec.head)*H)/headH;
+  const topGap=state.spec.gap*H;
+  /* 保证人物延伸到照片底边（胸像构图），但最多放大约 1.5 倍 */
+  const minScale=(H-topGap)/Math.max(1,layer.height-geometry.top);
+  if(scale<minScale)scale=Math.min(minScale,scale*1.5);
+
+  const dw=layer.width*scale,dh=layer.height*scale;
+  g.drawImage(layer,W/2-geometry.cx*scale,topGap-geometry.top*scale,dw,dh);
+}
+
+function faceBrightness(){
+  if(!faceBox)return null;
+  const W=srcCanvas.width,H=srcCanvas.height;
+  const x=Math.max(0,faceBox.xMin*W),y=Math.max(0,faceBox.yMin*H);
+  const w=Math.min(W-x,faceBox.width*W),h=Math.min(H-y,faceBox.height*H);
+  if(!isFinite(w)||!isFinite(h)||w<4||h<4)return null;
+  const s=Math.round(Math.min(Math.min(w,h),120));
+  const t=mkCanvas(s,s);
+  t.getContext('2d').drawImage(srcCanvas,x,y,w,h,0,0,s,s);
+  const d=t.getContext('2d').getImageData(0,0,s,s).data;
+  let sum=0;for(let i=0;i<d.length;i+=4)sum+=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+  return sum/(s*s);
+}
+
+function updateTips(){
+  const tips=[];
+  if(aiFailMsg)tips.push(aiFailMsg);
+  else if(!mattingOK)tips.push('AI 抠图未成功，本次保留原图背景；换一张纯色背景的照片效果更好。');
+  else if(geometry&&!geometry.ok)tips.push('未检测到人脸，已按画面主体自动构图；使用正脸照片裁剪会更准。');
+  if(faceBox){
+    const b=faceBrightness();
+    if(b!==null&&b<70)tips.push('画面光线偏暗，成片可能发灰，建议在明亮均匀的光线下重拍。');
+    if(faceBox.width*srcCanvas.width<srcCanvas.width*0.12)tips.push('人脸占比偏小，建议离镜头近一些（胸部以上入镜）。');
+  }
+  if(state.bg==='#FFFFFF'&&srcCanvas){
+    try{
+      const d=preview.getContext('2d').getImageData(state.spec.px[0]>>1,state.spec.px[1]-6,1,1).data;
+      if(0.299*d[0]+0.587*d[1]+0.114*d[2]>235)tips.push('浅色衣服与白底容易融为一体，建议换蓝底/红底，或穿深色上衣重拍。');
+    }catch(e){}
+  }
+  if(!tips.length){
+    tipBox.hidden=false;
+    tipBox.innerHTML='<p class="ok">检测通过：人脸清晰、构图达标，可直接下载使用。</p>';
+  }else{
+    tipBox.hidden=false;
+    tipBox.innerHTML='<ul>'+tips.map(t=>'<li>'+t+'</li>').join('')+'</ul>';
+  }
+}
+
+function renderAll(){
+  if(!srcCanvas)return;
+  renderOutput();
+  sizeNote.textContent=state.spec.px[0]+' × '+state.spec.px[1]+' px · 300 DPI · '+state.spec.mm+' mm';
+  updateTips();
+  $('#retry').hidden=mattingOK;
+}
+
+/* ================= 主流程 ================= */
+function setBusy(show,text){busyText.textContent=text||'AI 处理中…';busy.classList.toggle('show',!!show);}
+
+async function handleFile(file){
+  if(!file)return;
+  if(!file.type.startsWith('image/')){alert('请选择图片文件（JPG / PNG）');return;}
+  setBusy(true,'正在读取照片…');
+  try{
+    const bmp=await loadBitmap(file);
+    srcCanvas=downscale(bmp,1600);
+    if(bmp.close)bmp.close();
+
+    setBusy(true,'正在加载 AI 模型…');
+    mattingOK=false;aiFailMsg='';faceBox=null;personCanvas=null;beautyCache.key='';
+    /* 人脸检测与抠图相互独立：哪一个可用就用哪一个 */
+    try{
+      await ensureFace();
+      setBusy(true,'AI 正在识别人脸…');
+      try{faceBox=pickLargest(await runFace(srcCanvas));}catch(e){faceBox=null;}
+    }catch(e){}
+    try{
+      await ensureSeg();
+      setBusy(true,'AI 正在抠图…');
+      personCanvas=buildPerson(srcCanvas,await runSegmentation(srcCanvas));
+      mattingOK=true;
+    }catch(e){
+      aiFailMsg='AI 模型加载失败（'+e.message+'）。本次保留原图背景，可点下方「重试 AI 抠图」再试。';
+    }
+
+    geometry=computeGeometry();
+    step1.hidden=true;editor.hidden=false;
+    renderAll();
+    editor.scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){
+    alert('处理失败：'+e.message);
+  }finally{
+    setBusy(false);
+  }
+}
+
+/* ================= 下载 ================= */
+function saveBlob(blob,name){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},800);
+}
+function fileName(ext){return '证件照_'+state.spec.name+'_'+state.bgName+'底.'+ext;}
+
+/* 六寸相纸 1800×1200（300DPI）自动排版 */
+function buildSheet(){
+  const [pw,ph]=state.spec.px,SW=1800,SH=1200,gap=24;
+  const cols=Math.max(1,Math.floor((SW+gap)/(pw+gap)));
+  const rows=Math.max(1,Math.floor((SH+gap)/(ph+gap)));
+  const c=mkCanvas(SW,SH),g=c.getContext('2d');
+  g.fillStyle='#FFFFFF';g.fillRect(0,0,SW,SH);
+  const ox=(SW-(cols*pw+(cols-1)*gap))/2,oy=(SH-(rows*ph+(rows-1)*gap))/2;
+  for(let r=0;r<rows;r++)for(let q=0;q<cols;q++)
+    g.drawImage(preview,ox+q*(pw+gap),oy+r*(ph+gap),pw,ph);
+  return c;
+}
+
+/* ================= 控件构建与事件 ================= */
+SPECS.forEach(s=>{
+  const b=document.createElement('button');
+  b.className='chip';b.type='button';
+  b.innerHTML=s.name+'<small>'+s.mm+' mm</small>';
+  b.onclick=()=>{state.spec=s;syncControls();renderAll();};
+  specRow.appendChild(b);
+});
+BGS.forEach(o=>{
+  const b=document.createElement('button');
+  b.className='sw';b.type='button';b.title=o.name+'底';
+  b.style.background=o.c;b.setAttribute('aria-label',o.name+'底');
+  b.onclick=()=>{state.bg=o.c;state.bgName=o.name;syncControls();renderAll();};
+  bgRow.appendChild(b);
+});
+(function(){
+  const lab=document.createElement('label');
+  lab.className='sw-custom';
+  lab.innerHTML='<input type="color" value="#438EDB">自定义';
+  lab.querySelector('input').addEventListener('input',e=>{
+    state.bg=e.target.value;state.bgName='自定义';syncControls();renderAll();
+  });
+  bgRow.appendChild(lab);
+})();
+
+BEAUTY.forEach(o=>{
+  const b=document.createElement('button');
+  b.className='chip';b.type='button';b.textContent=o.name;
+  b.onclick=()=>{state.beauty=o;syncControls();renderAll();};
+  beautyRow.appendChild(b);
+});
+
+function syncControls(){
+  [...specRow.children].forEach((el,i)=>el.classList.toggle('on',SPECS[i]===state.spec));
+  [...bgRow.querySelectorAll('.sw')].forEach((el,i)=>el.classList.toggle('on',BGS[i].c===state.bg));
+  [...beautyRow.children].forEach((el,i)=>el.classList.toggle('on',BEAUTY[i]===state.beauty));
+}
+
+drop.addEventListener('click',()=>fileInput.click());
+drop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' ')fileInput.click();});
+fileInput.addEventListener('change',()=>{handleFile(fileInput.files[0]);fileInput.value='';});
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>handleFile(e.dataTransfer.files[0]));
+document.addEventListener('paste',e=>{
+  if(!step1.hidden){
+    const item=[...(e.clipboardData||{items:[]}).items].find(i=>i.type.startsWith('image/'));
+    if(item)handleFile(item.getAsFile());
+  }
+});
+
+$('#dlJpg').onclick=()=>preview.toBlob(b=>saveBlob(b,fileName('jpg')),'image/jpeg',0.92);
+$('#dlPng').onclick=()=>preview.toBlob(b=>saveBlob(b,fileName('png')),'image/png');
+$('#dlSheet').onclick=()=>buildSheet().toBlob(b=>saveBlob(b,'证件照_'+state.spec.name+'_六寸排版.png'),'image/png');
+$('#retry').onclick=async()=>{
+  if(!srcCanvas)return;
+  setBusy(true,'正在重试 AI 抠图…');
+  try{
+    await ensureSeg();
+    setBusy(true,'AI 正在抠图…');
+    personCanvas=buildPerson(srcCanvas,await runSegmentation(srcCanvas));
+    mattingOK=true;aiFailMsg='';beautyCache.key='';
+    geometry=computeGeometry();
+    renderAll();
+  }catch(e){
+    aiFailMsg='重试仍失败（'+e.message+'）。请检查网络后稍后再试。';
+    renderAll();
+  }finally{setBusy(false);}
+};
+$('#reup').onclick=()=>{editor.hidden=true;step1.hidden=false;window.scrollTo({top:0,behavior:'smooth'});};
+
+syncControls();
+})();
+</script>
+</body>
+</html>
