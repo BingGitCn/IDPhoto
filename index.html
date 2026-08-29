@@ -17,7 +17,7 @@
   --pop:cubic-bezier(.34,1.56,.64,1);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;overflow-x:hidden}
 body{
   font-family:var(--sans);color:var(--ink);
   background:
@@ -25,7 +25,7 @@ body{
     radial-gradient(820px 540px at 102% -4%,rgba(157,187,212,.24),transparent 62%),
     radial-gradient(760px 520px at 50% 112%,rgba(143,181,155,.18),transparent 62%),
     linear-gradient(180deg,#FBF8F3,#F6F3EC);
-  min-height:100vh;line-height:1.7;font-size:15px;
+  min-height:100vh;line-height:1.7;font-size:15px;overflow-x:hidden;
 }
 body::after{
   content:"";position:fixed;inset:0;pointer-events:none;z-index:99;opacity:.045;
@@ -167,14 +167,14 @@ h1 .u{
 @keyframes pop{0%{transform:scale(.92)}60%{transform:scale(1.05)}100%{transform:scale(1)}}
 .swatches{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .sw{
-  width:32px;height:32px;border-radius:50%;border:2px solid #fff;cursor:pointer;padding:0;
+  width:38px;height:38px;border-radius:50%;border:2px solid #fff;cursor:pointer;padding:0;
   box-shadow:0 0 0 1px var(--line),0 6px 12px -6px rgba(59,54,47,.35);transition:.22s var(--pop);
 }
 .sw:hover{transform:translateY(-3px) scale(1.05)}
 .sw.on{box-shadow:0 0 0 2px var(--coral),0 8px 16px -6px rgba(232,115,90,.5);transform:scale(1.12)}
 .sw-custom{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);cursor:pointer}
 .sw-custom input[type=color]{
-  width:32px;height:32px;border:1.5px dashed rgba(59,54,47,.35);border-radius:50%;
+  width:38px;height:38px;border:1.5px dashed rgba(59,54,47,.35);border-radius:50%;
   padding:0;background:none;cursor:pointer;transition:.2s;
 }
 .sw-custom:hover input[type=color]{border-color:var(--coral)}
@@ -227,11 +227,18 @@ footer b{color:var(--ink)}
 footer p:first-child{font-family:var(--serif);letter-spacing:.14em;color:rgba(232,115,90,.8)}
 
 @media (max-width:760px){
-  .editor-grid{grid-template-columns:1fr}
-  .seal{right:-6px;bottom:-14px;width:84px;height:84px}
+  .wrap{padding:38px 16px 56px}
+  .masthead{margin-bottom:26px}
+  #step1{padding:20px}
+  .drop{padding:44px 18px}
+  .editor-grid{grid-template-columns:1fr;gap:18px}
+  .stage{padding:20px 16px}
+  .controls{padding:20px 16px}
+  .seal{right:-4px;bottom:-14px;width:84px;height:84px}
   .seal b{font-size:15px}
   .side-tag{display:none}
-  .blob{opacity:.35}
+  .blob{opacity:.3}
+  .chips{gap:7px}
 }
 @media (prefers-reduced-motion:reduce){
   .blob,.seal,.chip.on,.rise{animation:none}
